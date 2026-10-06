@@ -17,3 +17,18 @@ output "nat_gateway_ids" {
   description = "IDs of the NAT gateways."
   value       = module.vpc.nat_gateway_ids
 }
+
+output "eks_cluster_name" {
+  description = "Name of the EKS cluster."
+  value       = module.eks.cluster_name
+}
+
+output "eks_cluster_endpoint" {
+  description = "API endpoint of the EKS cluster."
+  value       = module.eks.cluster_endpoint
+}
+
+output "eks_cluster_security_group_id" {
+  description = "Security group ID created for the EKS cluster."
+  value       = module.eks.cluster_security_group_id
+}
