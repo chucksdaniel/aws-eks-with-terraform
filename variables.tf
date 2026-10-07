@@ -12,9 +12,10 @@ variable "aws_profile" {
 }
 
 variable "name" {
-  description = "Name prefix applied to VPC resources."
+  description = "Optional VPC name override. Defaults to <environment>-eks-vpc."
   type        = string
-  default     = "eks-vpc"
+  default     = null
+  nullable    = true
 }
 
 variable "vpc_cidr" {
@@ -40,10 +41,22 @@ variable "tags" {
   default     = {}
 }
 
-variable "cluster_name" {
-  description = "Name of the EKS cluster."
+variable "environment" {
+  description = "Deployment environment used to derive resource names and tags."
   type        = string
-  default     = "dev-eks"
+  default     = "dev"
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{0,39}$", var.environment))
+    error_message = "Environment must start with a lowercase letter and contain only lowercase letters, numbers, or hyphens (up to 40 characters)."
+  }
+}
+
+variable "cluster_name" {
+  description = "Optional EKS cluster name override. Defaults to <environment>-eks."
+  type        = string
+  default     = null
+  nullable    = true
 }
 
 variable "kubernetes_version" {
