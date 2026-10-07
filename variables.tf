@@ -12,9 +12,10 @@ variable "aws_profile" {
 }
 
 variable "name" {
-  description = "Name prefix applied to VPC resources."
+  description = "Optional VPC name override. Defaults to <environment>-eks-vpc."
   type        = string
-  default     = "eks-vpc"
+  default     = null
+  nullable    = true
 }
 
 variable "vpc_cidr" {
@@ -41,9 +42,10 @@ variable "tags" {
 }
 
 variable "cluster_name" {
-  description = "Name of the EKS cluster."
+  description = "Optional EKS cluster name override. Defaults to <environment>-eks."
   type        = string
-  default     = "dev-eks"
+  default     = null
+  nullable    = true
 }
 
 variable "kubernetes_version" {
@@ -74,4 +76,10 @@ variable "node_max_size" {
   description = "Maximum number of worker nodes."
   type        = number
   default     = 4
+}
+
+variable "environment" {
+  description = "Deployment environment used to derive resource names and tags."
+  type        = string
+  default     = "dev"
 }
