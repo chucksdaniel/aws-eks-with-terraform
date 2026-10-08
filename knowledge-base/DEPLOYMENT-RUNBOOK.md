@@ -94,6 +94,20 @@ kubectl get pods --all-namespaces
 
 A successful connection should show the cluster context, the EKS API server URL, and one or more `Ready` worker nodes. The live validation in this workspace successfully listed two Ready nodes using the `dev-eks` context.
 
+### Understanding the current pod output
+
+The shown output contains only the `kube-system` namespace because no application workload has been deployed yet. The `kube-system` namespace is reserved for Kubernetes and EKS system components. It is not the application's namespace and should not be used for application resources.
+
+The pods have the following purposes:
+
+- `aws-node`: The EKS VPC CNI plugin. It manages the network interfaces used by pods and supports networking features such as VPC CNI traffic handling. The two `aws-node` pods indicate that the daemon set is running on both worker nodes.
+- `kube-proxy`: The Kubernetes networking component that maintains iptables rules for Services, exposing service traffic to pods, and supporting basic Kubernetes networking behavior. The two `kube-proxy` pods indicate that the daemon set is running on both worker nodes.
+- `coredns-b8cbb77dc-f8v9z` and `coredns-b8cbb77dc-qmgxb`: CoreDNS replicas that provide DNS for the cluster. They resolve service names and Kubernetes DNS records for workloads inside the cluster. The two pods are normally used for availability and load distribution.
+
+The `READY` and `STATUS` columns show that all six pods are running and ready. The `RESTARTS` column shows zero restarts, which means these containers have not restarted during the observed period. The `AGE` values show that the system components have been running for approximately 89–98 minutes.
+
+The current two-worker-node layout means that node-level daemons such as `aws-node` and `kube-proxy` have one pod per node. A later application Deployment will appear in its own namespace, for example `my-application`, rather than in `kube-system`.
+
 ### Verify Kubernetes access
 
 Run an authorization check before deployment:
