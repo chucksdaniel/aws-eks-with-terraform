@@ -80,6 +80,17 @@ resource "aws_eks_cluster" "this" {
   depends_on = [aws_iam_role_policy_attachment.cluster]
 }
 
+resource "aws_launch_template" "nodes" {
+  name_prefix = "${var.cluster_name}-nodes-"
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = merge(local.common_tags, {
+      Name = "${var.cluster_name}-worker"
+    })
+  }
+}
+
 resource "aws_eks_node_group" "default" {
   cluster_name    = aws_eks_cluster.this.name
   node_group_name = "${var.cluster_name}-nodes"
@@ -87,6 +98,11 @@ resource "aws_eks_node_group" "default" {
   subnet_ids      = var.private_subnet_ids
 
   instance_types = var.node_instance_types
+
+  launch_template {
+    id      = aws_launch_template.nodes.id
+    version = tostring(aws_launch_template.nodes.latest_version)
+  }
 
   scaling_config {
     desired_size = var.node_desired_size
