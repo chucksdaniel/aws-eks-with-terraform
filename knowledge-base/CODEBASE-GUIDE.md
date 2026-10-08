@@ -102,10 +102,10 @@ This code does not configure IRSA/OIDC, EKS Pod Identity, EKS add-ons, the EBS C
 
 ## Backend and Environment Isolation
 
-`backend.tf` uses an S3 backend and currently contains a fixed staging state key. Terraform backend configuration cannot interpolate normal input variables or root locals. Therefore:
+`backend.tf` uses an S3 backend without a fixed state key. Terraform backend configuration cannot interpolate normal input variables or root locals. Therefore:
 
 - Resource names can use `var.environment`.
-- State selection must be done through backend configuration, for example `terraform init -reconfigure -backend-config="key=dev/eks-env/terraform.tfstate"`.
+- The environment wrapper reads the checked-out Git branch and selects its matching state key, for example `dev/eks-env/terraform.tfstate` or `staging/eks-env/terraform.tfstate`.
 - Always ensure the selected backend key matches the environment variables. A wrong or empty state can make Terraform propose duplicate resources or affect the wrong environment.
 
-See [DEPLOYMENT-RUNBOOK.md](DEPLOYMENT-RUNBOOK.md) for the step-by-step commands and safety checks.
+The runbook and limitations files in [the knowledge base](README.md) are branch-specific: keep development guidance on `dev` and staging guidance on `staging`.

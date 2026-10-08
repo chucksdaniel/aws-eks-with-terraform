@@ -130,11 +130,146 @@ NAT is for outbound connections from private resources; it does not make those r
 
 ## EKS Terraform and Version Settings
 
+### Minimum, Desired, and Maximum Node Counts
+
+The managed node group's scaling settings follow this rule:
+
+```text
+minimum <= desired <= maximum
+```
+
+Think of the values as a floor, target, and ceiling:
+
+- `node_min_size` is the smallest number of worker nodes the group should keep.
+- `node_desired_size` is the number of worker nodes the group should try to run now.
+- `node_max_size` is the largest number of worker nodes the group is allowed to reach.
+
+For example, `minimum = 1`, `desired = 2`, and `maximum = 4` is valid. It asks for two workers, permits the count to go down to one, and permits it to grow as high as four. It does not guarantee enough capacity or availability for every workload. With only one worker available, a node failure or maintenance event can leave the cluster without enough room for its pods. A small development cluster may accept that tradeoff; shared staging or production-like environments often keep at least two workers for resilience.
+
+The current development values are `minimum = 2`, `desired = 2`, and `maximum = 4`. These values are configured in `environments/dev.tfvars`.
+
+In this codebase, no Cluster Autoscaler or Karpenter is configured. Therefore the desired count stays at the configured value unless an operator changes it or another scaling component is installed. Minimum and maximum are bounds; they do not independently make the node group scale up or down. Kubernetes pod autoscaling is separate: it changes the number of application pods, while node autoscaling changes the number of worker machines.
+
 The EKS Terraform creates IAM roles, the EKS control plane, and a managed node group. The control-plane role lets the EKS service manage cluster resources. The node role lets EC2 worker nodes join the cluster, use required networking permissions, and pull images from ECR. The EKS cluster uses the private subnet IDs; the managed node group also launches in those private subnets.
 
 The `kubernetes_version` variable is defined in root `variables.tf`, passed into the EKS module from root `main.tf`, then assigned to `aws_eks_cluster.this.version`. The local `terraform.tfvars` sets it to `1.36`; the variable default is also `1.36`.
 
 The repository `.gitignore` excludes all `*.tfvars` files because they may contain secrets. Consequently, the local `terraform.tfvars` value is not committed or pushed. Keep secrets out of shared files; for team deployments, supply non-secret environment-specific values through the team's approved configuration/CI process.
+
+## What a Launch Template Does in EKS Provisioning
+
+An AWS launch template is an EC2 launch configuration template that can define the settings used when a new EC2 instance is created. For an EKS managed node group, it can define or influence the instance image, instance type, networking, bootstrap user data, security groups, block devices, and instance tags.
+
+The launch template is not a Kubernetes resource and it is not the EKS node group itself. It is the AWS object that describes how the managed node group launches its EC2 worker machines. The EKS node group remains the Kubernetes-facing resource that controls the desired, minimum, and maximum worker count, node role, subnets, and update behavior.
+
+A launch template is needed when the managed node group must use custom EC2 launch behavior. Common reasons include:
+
+- Adding an EC2 `Name` tag or other instance-level tags.
+- Applying a custom AMI or launch configuration.
+- Adding custom user data or bootstrap configuration.
+- Controlling instance type, security groups, networking, or block-device settings.
+- Reusing the same launch configuration across multiple node groups or environments.
+
+It was not present in the initial provisioning because EKS managed node groups can use their default launch behavior. The original configuration had enough information to create the EKS cluster, worker role, subnets, instance types, and scaling settings without a custom launch template. EKS therefore launched the worker EC2 instances using its managed defaults. This was sufficient for basic development provisioning, but it did not provide a durable mechanism to set the EC2 `Name` tag on every worker instance.
+
+The current module creates `aws_launch_template.nodes` with an instance tag specification. The `resource_type = "instance"` block applies the tags to EC2 instances rather than to the launch template or node group. The `Name` value is set to `${var.cluster_name}-worker`, while `local.common_tags` also supplies shared tags such as `Environment`.
+
+The `aws_eks_node_group.default` resource then references that launch template through its `launch_template` block. EKS uses the template when it creates a worker instance, and future replacement or autoscaled instances receive the template's instance specifications. This makes the Name tag repeatable instead of relying on a one-time manual tag.
+
+Adding a launch template is a configuration change, not a Kubernetes cluster bootstrap step. The EKS service still performs the Kubernetes bootstrap, joins the node to the cluster, and applies the node role and subnet configuration. The launch template supplies the EC2 launch details; the node group controls how many workers and how they are managed.
+
+Changing the launch template can cause replacement or update work because the EKS node group may need to roll out new instances. Review `terraform plan` before applying, especially when the template is newly introduced or its version changes. Do not assume that tags on `aws_eks_node_group.default` automatically become EC2 instance tags.
+
+## Worker Node Operating System and Instance Type
+
+The live worker instance was inspected in the current `dev` environment. It is running on:
+
+- **Instance type:** `t3.medium`
+- **Operating system:** Amazon Linux 2023
+- **Kubernetes node AMI:** `amazon-eks-node-al2023-x86_64-standard-1.36-v20260930`
+- **Kubernetes version:** `1.36.4`
+- **Container runtime:** `containerd` 2.x
+
+This is an EKS-optimized Amazon Linux 2023 node image, not Red Hat or Ubuntu. EKS supplies and manages the optimized AMI. The AMI version and Kubernetes version are selected by the EKS service and can change over time; do not manually replace the operating system or AMI on an existing worker node.
+
+### Best-practice operating system
+
+For a managed EKS node group, the recommended practice is to use an EKS-optimized operating-system image that is supported for the selected Kubernetes version. In this configuration, that means the EKS-optimized Amazon Linux 2023 image currently associated with Kubernetes 1.36.4. This is the best default because EKS provides the required bootstrap process, security updates, compatibility testing, and node-image lifecycle management.
+
+Red Hat or Ubuntu can be used with a custom managed node group or custom launch template, but that requires additional work: selecting a compatible AMI, validating the EKS bootstrap process, installing and maintaining the container runtime, and testing node upgrades and security patches. It is not the simplest or lowest-risk choice for a new managed node group.
+
+Use the EKS-supported image whenever possible. For production, also verify that the selected Kubernetes and EKS node-image versions are supported and that the operating-system patch level is approved by the organization. Do not mix a custom OS with the default EKS managed-node behavior without validating the full bootstrap and upgrade path.
+
+### Production migration recommendation
+
+For a production migration, use the same EKS-supported operating-system image as the current development node group unless a specific application dependency requires another operating system. Amazon Linux is AWS-native and is the lowest-risk default because it integrates with EKS, AWS IAM, ECR, EC2, and the EKS node bootstrap process.
+
+Recommended production migration sequence:
+
+1. Run the application on an EKS-managed node group using the EKS-optimized Amazon Linux image.
+2. Validate application compatibility, package installation, CPU, memory, storage, networking, and security policies in a test or staging environment.
+3. Use a new node group or a controlled rollout so the existing environment remains available for rollback.
+4. Verify that the production Kubernetes and node-image versions are supported and approved.
+5. Migrate workloads gradually, keeping the previous environment available until validation is complete.
+6. Review the production node group, update policy, logging, monitoring, and image patching before final cutover.
+
+Amazon Linux is the preferred choice when the workload can run on it. Ubuntu is a reasonable option when an application depends on its package ecosystem or a specific service, while Red Hat is useful for organizations that need an established enterprise operating system and support model. In every case, use a supported EKS-compatible AMI and validate the full upgrade and replacement path.
+
+The current configuration declares `node_instance_types = ["t3.medium"]`, which appears in `environments/dev.tfvars` and the root variable default. The exact `t3.medium` instance type is therefore the one selected for the managed node group. The AMI is determined by the EKS node image associated with the cluster Kubernetes version, not by the Terraform `instance_types` value.
+
+### Choosing an instance type for workloads
+
+`t3.medium` is a reasonable starting point for development and small workloads because it provides a balanced combination of vCPU, memory, and cost. It is suitable for many lightweight APIs, test applications, and small services, but it may be too small for memory-heavy workloads, large databases, or workloads with high CPU use.
+
+Choose an instance type based on the workload's measured resource requirements rather than choosing an operating system as the primary factor:
+
+- **CPU-heavy workloads:** larger compute-oriented instances such as `m5.large`, `m5.xlarge`, or a family optimized for compute.
+- **Memory-heavy workloads:** instances with the required memory-to-vCPU ratio, such as `r5.large` or `r5.xlarge`, depending on the workload.
+- **General development or small services:** `t3.medium` is a practical default.
+- **Production-like or high availability:** use at least two nodes across separate Availability Zones and choose a size based on capacity testing and load testing.
+- **GPU or specialized workloads:** use a GPU-enabled instance family and ensure the EKS AMI and driver stack support it.
+
+A larger instance can reduce the number of nodes needed, but it is not automatically better. It may cost more and can fail when a pod requests a large amount of memory, CPU, or storage. Measure actual pod requests, node utilization, and scheduling behavior before changing the instance type.
+
+For production and staging, prefer a stable instance family with an EKS-optimized AMI, an approved security baseline, and explicit node sizing. Treat the operating system as part of the EKS-managed node image rather than as a choice made in the Terraform configuration.
+
+## Worker EC2 Name Tags and Saved Terraform Outputs
+
+The managed node group has a `tags` block with a `Name` value, but that tag does not necessarily become the EC2 `Name` tag on each worker instance. The node group is an EKS resource; its tags identify the node group and may be applied to related Auto Scaling resources. EC2 instance tags must be specified as launch-template instance tag specifications.
+
+For future managed node-group creation, define a launch template with instance tag specifications and attach it to the node group:
+
+```hcl
+resource "aws_launch_template" "nodes" {
+	name_prefix = "${var.cluster_name}-nodes-"
+
+	tag_specifications {
+		resource_type = "instance"
+		tags = merge(local.common_tags, {
+			Name = "${var.cluster_name}-worker"
+		})
+	}
+}
+
+resource "aws_eks_node_group" "default" {
+	# Keep the existing node-group arguments.
+
+	launch_template {
+		id      = aws_launch_template.nodes.id
+		version = tostring(aws_launch_template.nodes.latest_version)
+	}
+}
+```
+
+The same `Name` value will appear on each instance; use other tags such as cluster and environment to distinguish them. If a managed node group was created without a custom launch template, adding one may require replacing the node group. Review `terraform plan` for replacement and schedule the change to avoid interrupting workloads. Do not manually add instance tags as the lasting fix, because replacement or autoscaled instances will not inherit those manual changes.
+
+The current output snapshot is kept in `knowledge-base/output.md`. Refresh it for the active Git branch after provisioning with:
+
+```sh
+bash scripts/terraform-env.sh output
+```
+
+That command selects the branch's backend state, runs `terraform output`, and overwrites the snapshot. The snapshot is environment-specific; only update or commit it from the branch/environment it represents. Terraform outputs should not contain secrets.
 
 ## Scope Notes
 
