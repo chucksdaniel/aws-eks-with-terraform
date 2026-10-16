@@ -1,6 +1,6 @@
 # EKS Readiness Gaps and Solutions
 
-This guide maps the gaps identified in the current Terraform configuration to practical ways to address them. It explains why each matters and when it is useful. It is a planning guide; it does not modify the Terraform configuration.
+This guide maps gaps identified in the Terraform configuration to practical solutions. It explains why each matters and when it is useful.
 
 ## Current Baseline
 
@@ -12,7 +12,7 @@ The configuration has passed `terraform validate`, but that does not prove that 
 
 ### 1. Restrict access to the Kubernetes API
 
-**Current gap:** The EKS public API endpoint is enabled, but no public source CIDRs are specified. That leaves the endpoint reachable from any internet address, subject to authentication.
+**Status:** The Terraform now restricts the EKS public API endpoint to `cluster_public_access_cidrs`, defaulting to `102.140.100.226/32`. The private endpoint remains enabled.
 
 **Solution:** Choose one of these approaches:
 
@@ -20,27 +20,16 @@ The configuration has passed `terraform validate`, but that does not prove that 
 - Disable public access and require administrators and automation to connect from the VPC, VPN, or another connected network.
 - Enable both private and restricted public access if teams need both paths.
 
-For a restricted public endpoint, add a root input and pass it into the EKS module:
+Add trusted administrator or CI egress CIDRs to the `cluster_public_access_cidrs` list in your environment-specific `.tfvars` file. For example:
 
 ```hcl
-variable "cluster_public_access_cidrs" {
-  description = "Trusted IPv4 CIDRs allowed to reach the EKS public API endpoint."
-  type        = list(string)
-}
+cluster_public_access_cidrs = [
+  "102.140.100.226/32",
+  "203.0.113.20/32",
+]
 ```
 
-In the EKS module, use it in the existing `vpc_config` block:
-
-```hcl
-vpc_config {
-  subnet_ids              = var.private_subnet_ids
-  endpoint_private_access = true
-  endpoint_public_access  = true
-  public_access_cidrs     = var.cluster_public_access_cidrs
-}
-```
-
-Pass the variable through the root module call, and set actual trusted ranges in your environment-specific Terraform inputs, for example `198.51.100.24/32` as a documentation-only example. Replace that example with your real VPN or administrator egress CIDR. Do not use `0.0.0.0/0` for a staging or production-like environment.
+Replace `203.0.113.20/32` with another administrator's actual stable public egress IP or trusted network CIDR. The EKS module rejects malformed CIDRs and unrestricted `0.0.0.0/0` or `::/0` entries. Do not use broad CIDRs for staging or production-like environments.
 
 **Why it matters:** Anyone can reach a publicly exposed endpoint to attempt authentication. An IP allowlist reduces who can even connect to the API.
 

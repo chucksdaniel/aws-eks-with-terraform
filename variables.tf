@@ -54,6 +54,12 @@ variable "kubernetes_version" {
   default     = "1.36"
 }
 
+variable "cluster_public_access_cidrs" {
+  description = "Trusted CIDR ranges allowed to reach the EKS public API endpoint."
+  type        = list(string)
+  default     = ["102.140.100.226/32"]
+}
+
 variable "node_instance_types" {
   description = "EC2 instance types for the managed node group."
   type        = list(string)

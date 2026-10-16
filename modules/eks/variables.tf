@@ -8,6 +8,19 @@ variable "kubernetes_version" {
   type        = string
 }
 
+variable "cluster_public_access_cidrs" {
+  description = "Trusted CIDR ranges allowed to reach the EKS public API endpoint."
+  type        = list(string)
+
+  validation {
+    condition = length(var.cluster_public_access_cidrs) > 0 && alltrue([
+      for cidr in var.cluster_public_access_cidrs :
+      can(cidrhost(cidr, 0)) && cidr != "0.0.0.0/0" && cidr != "::/0"
+    ])
+    error_message = "Provide at least one valid, restricted CIDR; unrestricted public access is not allowed."
+  }
+}
+
 variable "vpc_id" {
   description = "VPC ID for the EKS cluster."
   type        = string
