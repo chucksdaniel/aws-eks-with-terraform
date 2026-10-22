@@ -5,6 +5,7 @@ The `DEPLOYMENT-RUNBOOK.md` and `LIMITATIONS.md` files in this folder describe t
 - [Deployment runbook for the current branch](DEPLOYMENT-RUNBOOK.md)
 - [Limitations for the current branch](LIMITATIONS.md)
 - [Shared Terraform codebase guide](CODEBASE-GUIDE.md)
+- [Collaboration and EKS access onboarding](COLLABORATION-ONBOARDING.md)
 - [General EKS learning notes](EKS-LEARNING-NOTES.md)
 
 The environment selector reads the Git branch, validates the matching local variable file, and selects that environment's backend state. You are currently on `dev`; confirm the target before planning or deploying:
